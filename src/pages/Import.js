@@ -156,7 +156,21 @@ export default function Import() {
             cat = sep === -1 ? override : override.slice(0, sep)
             sub = sep === -1 ? '' : override.slice(sep + 3)
           }
-          return { ...tx, category: cat, subcategory: sub, reviewed: true }
+          // Only send columns that exist on the transactions table. categoriseBatch
+          // adds `confidence` and `tier` for the UI, which PostgREST rejects (PGRST204)
+          // and which would fail the entire upsert if spread in.
+          return {
+            date: tx.date,
+            description: tx.description,
+            amount: tx.amount,
+            balance: tx.balance,
+            reference: tx.reference,
+            account: tx.account,
+            type: tx.type,
+            category: cat,
+            subcategory: sub,
+            reviewed: true,
+          }
         })
       await upsertTransactions(toCommit)
       setCommitted(true)
