@@ -1,0 +1,152 @@
+// Categorisation engine
+// Rules are checked in order — first match wins
+// confidence: 1 = auto-assign silent, 0.7 = auto-assign flag, <0.7 = needs review
+
+export const DEFAULT_RULES = [
+  // A — Fixed
+  { pattern: /SANTANDER MORTGAGE/i, category: 'A', subcategory: 'Mortgage', confidence: 1 },
+  { pattern: /VIRGIN MONEY/i, category: 'A', subcategory: 'Credit card', confidence: 1 },
+  { pattern: /HALIFAX/i, category: 'A', subcategory: 'Credit card', confidence: 1 },
+  { pattern: /SANTANDERCARDS/i, category: 'A', subcategory: 'Credit card', confidence: 1 },
+  { pattern: /CREATION\.CO\.UK/i, category: 'A', subcategory: 'Credit card', confidence: 1 },
+  { pattern: /ANNUAL FEE/i, category: 'A', subcategory: 'Banking', confidence: 1 },
+  { pattern: /HLAM.*ISA|S.S ISA/i, category: 'A', subcategory: 'Stocks ISA', confidence: 1 },
+  { pattern: /HLAM REGULAR SAVIN/i, category: 'A', subcategory: 'Cash saving', confidence: 1 },
+  { pattern: /FUTURE COMPASS/i, category: 'A', subcategory: 'Business setup (one-off)', confidence: 1 },
+  { pattern: /LIFE.*INSURANCE|INSURANCE.*LIFE/i, category: 'A', subcategory: 'Life insurance', confidence: 1 },
+
+  // A — Housing fixed costs
+  { pattern: /OCTOPUS ENERGY|OVO ENERGY|BRITISH GAS/i, category: 'A', subcategory: 'Energy', confidence: 1 },
+  { pattern: /VIRGIN MEDIA/i, category: 'A', subcategory: 'Broadband', confidence: 1 },
+  { pattern: /RUSHCLIFFE BC|RUSHCLIFFE BORO.*COUNCIL TAX/i, category: 'A', subcategory: 'Council tax', confidence: 1 },
+  { pattern: /SEVERN TRENT/i, category: 'A', subcategory: 'Water', confidence: 1 },
+  { pattern: /TV LICEN/i, category: 'A', subcategory: 'TV licence', confidence: 1 },
+
+  // B — Minimum costs
+  { pattern: /TESCO|ASDA|MORRISONS|MORR |SAINSBURY|ALDI|LIDL|CO-OP|WAITROSE|MARKS.SPENCER|M&S FOOD|PORLOCK BAY|EAST BRIDGFORD GDN|GRASSHOPPER/i, category: 'B', subcategory: 'Groceries', confidence: 1 },
+  { pattern: /EE DEVICE|EE MOBILE|THREE|O2 |SMARTY|GIFFGAFF/i, category: 'B', subcategory: 'Mobile', confidence: 1 },
+  { pattern: /NETFLIX|AMAZON PRIME|DISNEY|PEACOCK|SPOTIFY|APPLE\.COM\/BILL/i, category: 'B', subcategory: 'Streaming', confidence: 1 },
+  { pattern: /YGT FITNESS|VIRGIN ACTIVE|PURE GYM|NUFFIELD/i, category: 'B', subcategory: 'Gym', confidence: 1 },
+  { pattern: /ANTHROPIC/i, category: 'B', subcategory: 'Subscriptions', confidence: 1 },
+  { pattern: /PARENTPAY/i, category: 'B', subcategory: 'Oscar — school', confidence: 1 },
+  { pattern: /OSCAR PHIPPS/i, category: 'B', subcategory: 'Oscar spending', confidence: 1 },
+
+  // Salary inflows
+  { pattern: /3M UK/i, category: 'Income', subcategory: 'Gavin wages', confidence: 1 },
+  { pattern: /NOTTINGHAM TRENT/i, category: 'Income', subcategory: 'Claire wages', confidence: 1 },
+  { pattern: /MS K.*PHIPPS|MR R.*PHIPPS/i, category: 'Income', subcategory: 'Mortgage contribution', confidence: 1 },
+
+  // Internal transfers
+  { pattern: /TRANSFER.*CLAIRE CLARKE|TRANSFER.*PHIPPS/i, category: 'Internal', subcategory: 'Transfer', confidence: 1 },
+  { pattern: /REGULAR TRANSFER.*072877508|REGULAR TRANSFER.*090129 72877508/i, category: 'Internal', subcategory: 'Holiday savings', confidence: 1 },
+  { pattern: /REGULAR TRANSFER.*092032381|REGULAR TRANSFER.*090129 92032381/i, category: 'Internal', subcategory: 'Motorhome fund', confidence: 1 },
+  { pattern: /MORTGAGE2606|033445463/i, category: 'A', subcategory: 'Mortgage overpayment', confidence: 1 },
+
+  // C — Extra costs
+  { pattern: /SNOWCOMPARE|OXYGENE SKI|SNOWDOME|HPY\*SRS|HPY\*SKIMIUM|SKIDDLE|RYANAIR|LUTON AIRPORT|JET2|AIRBNB|BOOKING\.COM|HOLIDAY|EASYJET/i, category: 'C', subcategory: 'Holidays', confidence: 1 },
+  { pattern: /SARL CLUB HOUSE|LA FOLIE DOUCE|HAMEAUX|BAR DE L|HAPPY MARMOTTE|VAL D.ISERE|INTERMARCHE|CAFE PALHINHAS|MAR D.ESTORIAS|AREAS PORTUGAL/i, category: 'C', subcategory: 'Holidays', confidence: 1 },
+  { pattern: /BOLT MEDICAL/i, category: 'C', subcategory: 'Health', confidence: 1 },
+  { pattern: /RUSHCLIFFE VET|VETS|VET /i, category: 'C', subcategory: 'Cats', confidence: 1 },
+  { pattern: /LADY BAY DENTAL|DENTAL/i, category: 'C', subcategory: 'Health', confidence: 1 },
+  { pattern: /MAHARISHI|SPORTPURSUIT|STEADYRACK|DECATHLON|RIPPL IMPACT|BIKEPARTS|THE BIKE HOUSE|SP WOLF MOON|SCAMP AND DUDE/i, category: 'C', subcategory: 'Clothing and sport', confidence: 1 },
+  { pattern: /COMFORT-INSURANCE|DVLA EVL|MOTORHOME|CARAVAN/i, category: 'C', subcategory: 'Motorhome', confidence: 1 },
+  { pattern: /IKEA/i, category: 'C', subcategory: 'Home improvements', confidence: 1 },
+  { pattern: /FLIGHTCLUB|RESIDENT ADVISOR|TRCH|FORESTRY ENGLAND|WONDERLAND|SKIDDLE/i, category: 'C', subcategory: 'Leisure', confidence: 1 },
+  { pattern: /SUSTRANS|RED CROSS|GREENPEACE|WWF|RSPB|UNICEF|ACTION AID|AMNESTY|SCOPE|UCU|FRIARY/i, category: 'C', subcategory: 'Charity', confidence: 1 },
+  { pattern: /NATIONAL TRUST/i, category: 'C', subcategory: 'Charity', confidence: 1 },
+  { pattern: /WOLF MOON|SCAMP AND DUDE|JUST GIVING/i, category: 'C', subcategory: 'Gifting', confidence: 1 },
+  { pattern: /CASH WITHDRAWAL|ATM/i, category: 'C', subcategory: 'Cash', confidence: 0.8 },
+  { pattern: /RESTAURANT|BISTRO|CAFE|COFFEE|PIZZA|NANDO|WAGAMAMA|MCDONALDS|KFC|SUBWAY|COSTA|STARBUCKS|PRET/i, category: 'C', subcategory: 'Eating out', confidence: 0.9 },
+  { pattern: /PARKING|NTCP|CAR PARK/i, category: 'C', subcategory: 'Transport', confidence: 0.9 },
+  { pattern: /FUEL|PETROL|SHELL|BP |ESSO|TEXACO/i, category: 'C', subcategory: 'Fuel', confidence: 1 },
+  { pattern: /AMAZON/i, category: 'C', subcategory: 'Other', confidence: 0.6 },
+  { pattern: /KLARNA/i, category: 'C', subcategory: 'Clothing and sport', confidence: 0.7 },
+  { pattern: /RUSHCLIFFE BOROUGH COUN/i, category: 'C', subcategory: 'Garden/Household', confidence: 1 },
+  { pattern: /1STFORMATIONS/i, category: 'A', subcategory: 'Business setup (one-off)', confidence: 1 },
+  { pattern: /V12 RETAIL/i, category: 'A', subcategory: 'Credit card', confidence: 1 },
+]
+
+export function categorise(merchantDescription, customRules = []) {
+  const allRules = [...customRules, ...DEFAULT_RULES]
+  for (const rule of allRules) {
+    if (rule.pattern.test(merchantDescription)) {
+      return {
+        category: rule.category,
+        subcategory: rule.subcategory,
+        confidence: rule.confidence,
+        tier: rule.confidence >= 1 ? 1 : rule.confidence >= 0.7 ? 2 : 3
+      }
+    }
+  }
+  return { category: '?', subcategory: 'Needs review', confidence: 0, tier: 3 }
+}
+
+export function categoriseBatch(transactions, customRules = []) {
+  return transactions.map(tx => ({
+    ...tx,
+    ...categorise(tx.description || tx.merchant || '', customRules)
+  }))
+}
+
+// Parse Santander XLS (served as HTML)
+export function parseSantanderHTML(text) {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(text, 'text/html')
+  const rows = Array.from(doc.querySelectorAll('tr'))
+  const transactions = []
+  for (const row of rows) {
+    const cells = Array.from(row.querySelectorAll('td')).map(td => td.textContent.trim())
+    if (cells.length < 5) continue
+    const dateStr = cells[1]
+    if (!dateStr || !/\d{2}\/\d{2}\/\d{4}/.test(dateStr)) continue
+    const [d, m, y] = dateStr.split('/')
+    const date = `${y}-${m}-${d}`
+    const description = cells[3] || ''
+    const moneyIn = parseFloat((cells[5] || '').replace(/[£,]/g, '')) || 0
+    const moneyOut = parseFloat((cells[6] || '').replace(/[£,]/g, '')) || 0
+    const balance = parseFloat((cells[7] || '').replace(/[£,]/g, '')) || 0
+    const reference = `SAN-${date}-${description.slice(0, 20)}-${moneyIn || moneyOut}`.replace(/\s+/g, '-')
+    if (!description) continue
+    transactions.push({
+      date,
+      description,
+      amount: moneyIn > 0 ? moneyIn : -moneyOut,
+      balance,
+      reference,
+      account: 'Santander current',
+      type: moneyIn > 0 ? 'credit' : 'debit'
+    })
+  }
+  return transactions
+}
+
+// Parse credit card CSV
+export function parseCreditCardCSV(csvText) {
+  const lines = csvText.split('\n').filter(Boolean)
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
+  const transactions = []
+  for (let i = 1; i < lines.length; i++) {
+    try {
+      const cols = lines[i].split(',').map(c => c.trim().replace(/"/g, ''))
+      if (cols.length < 4) continue
+      const row = Object.fromEntries(headers.map((h, j) => [h, cols[j] || '']))
+      const dateStr = row['Transaction Date'] || ''
+      if (!dateStr || !/\d{4}-\d{2}-\d{2}/.test(dateStr)) continue
+      const amount = parseFloat(row['Billing Amount']) || 0
+      const isDebit = (row['Debit or Credit'] || 'DBIT') === 'DBIT'
+      const merchant = row['Merchant'] || ''
+      const reference = row['Reference Number'] || `CC-${dateStr}-${merchant}-${amount}`
+      transactions.push({
+        date: dateStr,
+        description: merchant,
+        amount: isDebit ? -amount : amount,
+        balance: null,
+        reference,
+        account: `Credit card (${row['Card Used'] || 'CC'})`,
+        type: isDebit ? 'debit' : 'credit'
+      })
+    } catch (e) { continue }
+  }
+  return transactions
+}
