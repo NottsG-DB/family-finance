@@ -2,6 +2,30 @@
 // Rules are checked in order — first match wins
 // confidence: 1 = auto-assign silent, 0.7 = auto-assign flag, <0.7 = needs review
 
+// Canonical assignable categories ('Letter — Subcategory'), shared by the import
+// review dropdowns and the in-app transaction editor. A = fixed, B = variable but
+// near-essential, C = variable discretionary; plus Income and Internal transfers.
+export const ALL_CATEGORIES = [
+  'A — Mortgage', 'A — Credit card', 'A — Banking', 'A — Stocks ISA', 'A — Cash saving',
+  'A — Energy', 'A — Broadband', 'A — Council tax', 'A — Water', 'A — TV licence',
+  'A — Business setup (one-off)', 'A — Mortgage overpayment',
+  'B — Groceries', 'B — Mobile', 'B — Streaming', 'B — Gym', 'B — Subscriptions',
+  'B — Oscar — school', 'B — Oscar spending',
+  'C — Holidays', 'C — Health', 'C — Clothing and sport', 'C — Motorhome',
+  'C — Leisure', 'C — Charity', 'C — Gifting', 'C — Home improvements',
+  'C — Eating out', 'C — Transport', 'C — Fuel', 'C — Bikes', 'C — Cash',
+  'C — Garden/Household', 'C — Cats', 'C — Other',
+  'Income — Gavin wages', 'Income — Claire wages', 'Income — Other',
+  'Internal — Transfer',
+]
+
+// Split a 'Letter — Subcategory' string on the FIRST separator only, so subcategories
+// that themselves contain ' — ' (e.g. 'Oscar — school') survive intact.
+export function splitCategory(value) {
+  const sep = value.indexOf(' — ')
+  return sep === -1 ? [value, ''] : [value.slice(0, sep), value.slice(sep + 3)]
+}
+
 export const DEFAULT_RULES = [
   // A — Fixed
   { pattern: /SANTANDER MORTGAGE/i, category: 'A', subcategory: 'Mortgage', confidence: 1 },

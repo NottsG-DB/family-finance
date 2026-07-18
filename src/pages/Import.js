@@ -1,21 +1,9 @@
 import React, { useState, useCallback } from 'react'
-import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV } from '../lib/categorise'
+import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV, splitCategory, ALL_CATEGORIES } from '../lib/categorise'
 import { upsertTransactions } from '../lib/supabase'
 import { formatCurrencyFull } from '../lib/finance'
 
-const ALL_CATS = [
-  'A — Mortgage', 'A — Credit card', 'A — Banking', 'A — Stocks ISA', 'A — Cash saving',
-  'A — Energy', 'A — Broadband', 'A — Council tax', 'A — Water', 'A — TV licence',
-  'A — Business setup (one-off)', 'A — Mortgage overpayment',
-  'B — Groceries', 'B — Mobile', 'B — Streaming', 'B — Gym', 'B — Subscriptions',
-  'B — Oscar — school', 'B — Oscar spending',
-  'C — Holidays', 'C — Health', 'C — Clothing and sport', 'C — Motorhome',
-  'C — Leisure', 'C — Charity', 'C — Gifting', 'C — Home improvements',
-  'C — Eating out', 'C — Transport', 'C — Fuel', 'C — Bikes', 'C — Cash',
-  'C — Garden/Household', 'C — Cats', 'C — Other',
-  'Income — Gavin wages', 'Income — Claire wages', 'Income — Other',
-  'Internal — Transfer',
-]
+const ALL_CATS = ALL_CATEGORIES
 
 const TIER_CONFIG = {
   1: { label: 'Tier 1 — High confidence', sub: 'Previously confirmed. Approve all or tap to change.', color: 'var(--green)', badgeClass: 'badge-green' },
@@ -149,13 +137,7 @@ export default function Import() {
         })
         .map(tx => {
           const override = overrides[tx.reference]
-          let cat = tx.category, sub = tx.subcategory
-          if (override) {
-            // Split on the FIRST ' — ' only, so subcategories like 'Oscar — school' survive.
-            const sep = override.indexOf(' — ')
-            cat = sep === -1 ? override : override.slice(0, sep)
-            sub = sep === -1 ? '' : override.slice(sep + 3)
-          }
+          const [cat, sub] = override ? splitCategory(override) : [tx.category, tx.subcategory]
           // Only send columns that exist on the transactions table. categoriseBatch
           // adds `confidence` and `tier` for the UI, which PostgREST rejects (PGRST204)
           // and which would fail the entire upsert if spread in.

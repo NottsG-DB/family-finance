@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { getTransactions } from '../lib/supabase'
+import { getTransactions, updateTransactionCategory } from '../lib/supabase'
+import { ALL_CATEGORIES, splitCategory } from '../lib/categorise'
 import { summariseByCategory, totalIncome, totalSpend, formatCurrencyFull } from '../lib/finance'
 
 
@@ -33,6 +34,21 @@ export default function Overview() {
   const extra = summary.filter(s => s.cat.startsWith('C'))
 
   const toggle = (s) => setOpenSection(openSection === s ? null : s)
+
+  const changeCategory = async (tx, value) => {
+    if (!value) return
+    const [category, subcategory] = splitCategory(value)
+    const prev = transactions
+    // Optimistic update so the totals and A/B/C sections re-derive immediately.
+    setTransactions(txs => txs.map(t => (t.id === tx.id ? { ...t, category, subcategory, reviewed: true } : t)))
+    try {
+      await updateTransactionCategory(tx.id, category, subcategory)
+    } catch (e) {
+      console.error(e)
+      setTransactions(prev) // revert on failure
+      alert('Could not update category. Check your connection.')
+    }
+  }
 
   const SectionCard = ({ id, label, sub, color, bg, items, total }) => (
     <div className="card">
@@ -111,9 +127,26 @@ export default function Overview() {
           <div className="card">
             {transactions.slice(0, 20).map(tx => (
               <div className="tx-item" key={tx.id || tx.reference}>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="tx-name">{tx.description}</div>
-                  <div className="tx-meta">{tx.date} · {tx.subcategory}</div>
+                  <div className="tx-meta" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                    <span style={{ flexShrink: 0 }}>{tx.date}</span>
+                    <span style={{ flexShrink: 0 }}>·</span>
+                    {(() => {
+                      const cur = `${tx.category} — ${tx.subcategory}`
+                      const opts = ALL_CATEGORIES.includes(cur) ? ALL_CATEGORIES : [cur, ...ALL_CATEGORIES]
+                      return (
+                        <select
+                          value={cur}
+                          onChange={e => changeCategory(tx, e.target.value)}
+                          disabled={!tx.id}
+                          style={{ fontSize: 11, padding: '1px 4px', maxWidth: 170 }}
+                        >
+                          {opts.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )
+                    })()}
+                  </div>
                 </div>
                 <div className={`tx-amount ${tx.amount >= 0 ? 'credit' : 'debit'}`}>
                   {tx.amount >= 0 ? '+' : ''}{formatCurrencyFull(tx.amount)}
