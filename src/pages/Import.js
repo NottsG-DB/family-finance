@@ -86,6 +86,7 @@ export default function Import() {
   const [savedCount, setSavedCount] = useState(() => loadSession()?.savedCount || 0)
   const [dragOver, setDragOver] = useState(false)
   const [learnedRules, setLearnedRules] = useState([])
+  const [bulkOffer, setBulkOffer] = useState(null)   // { key, value, refs } — offer to apply to same-merchant rows
   const { categories, addCategory } = useCategories()
 
   // Load learned rules for the "Learned rules" tab; reload after each save batch.
@@ -106,6 +107,7 @@ export default function Import() {
     setOverrides({})
     setApproved({ 1: false, 2: false })
     setSavedCount(0)
+    setBulkOffer(null)
   }, [])
 
   const processFile = useCallback(async (file) => {
@@ -139,6 +141,7 @@ export default function Import() {
     setOverrides({})
     setApproved({ 1: false, 2: false })
     setSavedCount(0)
+    setBulkOffer(null)
   }, [])
 
   const onDrop = useCallback(async (e) => {
@@ -154,12 +157,33 @@ export default function Import() {
   }, [processFile])
 
   const handleCategoryChange = async (ref, value) => {
+    let finalValue = value
     if (value === ADD_CATEGORY) {
       const c = await addCategory()
-      if (c) setOverrides(prev => ({ ...prev, [ref]: c }))
-      return
+      if (!c) return
+      finalValue = c
     }
-    setOverrides(prev => ({ ...prev, [ref]: value }))
+    setOverrides(prev => ({ ...prev, [ref]: finalValue }))
+    // Offer to apply the same category to other not-yet-saved rows from the same
+    // merchant in this import (fill-down), rather than silently doing it.
+    const src = transactions.find(t => t.reference === ref)
+    if (src) {
+      const key = merchantKey(src.description)
+      const refs = transactions
+        .filter(t => t.reference !== ref && !t.alreadySaved && merchantKey(t.description) === key && overrides[t.reference] !== finalValue)
+        .map(t => t.reference)
+      setBulkOffer(key && refs.length ? { key, value: finalValue, refs } : null)
+    }
+  }
+
+  const applyBulk = () => {
+    if (!bulkOffer) return
+    setOverrides(prev => {
+      const next = { ...prev }
+      for (const r of bulkOffer.refs) next[r] = bulkOffer.value
+      return next
+    })
+    setBulkOffer(null)
   }
 
   const handleApproveAll = (tier) => {
@@ -203,6 +227,9 @@ export default function Import() {
       })
       await upsertTransactions(toCommit)
       // Learn from manual assignments: the same merchant will auto-categorise next time.
+      // If a merchant is taught a DIFFERENT category than an existing rule, it's ambiguous
+      // (e.g. Amazon buys vary) — downgrade confidence to 0.7 so future imports flag it for
+      // review (amber) instead of silently auto-filing.
       const learnSeen = new Set()
       for (const tx of pending) {
         if (!overrides[tx.reference]) continue
@@ -210,7 +237,9 @@ export default function Import() {
         if (!key || learnSeen.has(key)) continue
         learnSeen.add(key)
         const [cat, sub] = splitCategory(overrides[tx.reference])
-        upsertRule(key, cat, sub, 1).catch(e => console.error('learn rule failed', e))
+        const existing = learnedRules.find(r => r.merchant_pattern === key)
+        const ambiguous = existing && (existing.category !== cat || existing.subcategory !== sub)
+        upsertRule(key, cat, sub, ambiguous ? 0.7 : 1).catch(e => console.error('learn rule failed', e))
       }
       const savedRefs = new Set(pending.map(tx => tx.reference))
       setTransactions(prev => prev.map(tx => (savedRefs.has(tx.reference) ? { ...tx, alreadySaved: true } : tx)))
@@ -290,6 +319,16 @@ export default function Import() {
                   {savedCount > 0
                     ? `All done — ${savedCount} transaction${savedCount === 1 ? '' : 's'} saved this session. They'll appear in the Overview once the month is selected.`
                     : 'Every transaction in this file is already in your data — nothing new to import.'}
+                </div>
+              )}
+
+              {bulkOffer && (
+                <div className="alert" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ flex: 1, fontSize: 12 }}>
+                    Apply <b>{bulkOffer.value}</b> to {bulkOffer.refs.length} other “{bulkOffer.key}” transaction{bulkOffer.refs.length === 1 ? '' : 's'}?
+                  </span>
+                  <button className="btn-primary" style={{ fontSize: 11, padding: '4px 10px', flexShrink: 0 }} onClick={applyBulk}>Apply to all</button>
+                  <button style={{ fontSize: 11, padding: '4px 8px', flexShrink: 0, background: 'none', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-2)', cursor: 'pointer' }} onClick={() => setBulkOffer(null)}>No</button>
                 </div>
               )}
 
