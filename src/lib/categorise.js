@@ -112,6 +112,22 @@ export function categoriseBatch(transactions, customRules = []) {
   }))
 }
 
+// Two genuinely-distinct transactions can share date+description+amount (e.g. two
+// identical same-day purchases), producing an identical reference. That collides the
+// upsert's onConflict:'reference' and Postgres rejects the WHOLE batch with a
+// cardinality error ("cannot affect row a second time"). Append a deterministic
+// counter to any duplicates so references are unique — and stable on re-import, since
+// the same file in the same order yields the same suffixes.
+export function ensureUniqueReferences(transactions) {
+  const counts = {}
+  for (const t of transactions) {
+    const base = t.reference
+    counts[base] = (counts[base] || 0) + 1
+    if (counts[base] > 1) t.reference = `${base}#${counts[base]}`
+  }
+  return transactions
+}
+
 // Parse Santander XLS (served as HTML)
 // Columns: 0=empty, 1=Date, 2=empty, 3=Description, 4=empty, 5=Money in, 6=Money Out, 7=Balance
 export function parseSantanderHTML(text) {
@@ -140,10 +156,12 @@ export function parseSantanderHTML(text) {
     const balance = cleanAmt(cells[7])
     if (moneyIn === 0 && moneyOut === 0) continue
     const amount = moneyIn > 0 ? moneyIn : -moneyOut
-    const reference = `SAN-${date}-${description.slice(0, 30)}-${Math.abs(amount)}`.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_.]/g, '')
+    // Include the running balance: it differs between two otherwise-identical
+    // same-day transactions, so references stay distinct (and stable on re-import).
+    const reference = `SAN-${date}-${description.slice(0, 30)}-${Math.abs(amount)}-B${balance}`.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_.]/g, '')
     transactions.push({ date, description, amount, balance, reference, account: 'Santander current', type: moneyIn > 0 ? 'credit' : 'debit' })
   }
-  return transactions
+  return ensureUniqueReferences(transactions)
 }
 
 // Parse Santander Midata CSV (semicolon separated, amounts as -£34.59)
@@ -165,10 +183,10 @@ export function parseSantanderMidata(text) {
     const balStr = (cols[4] || '').replace(/[^0-9.+-]/g, '')
     const balance = Math.abs(parseFloat(balStr) || 0)
     if (amount === 0) continue
-    const reference = `SAN-${date}-${description.slice(0, 20)}-${Math.abs(amount)}`.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_.]/g, '')
+    const reference = `SAN-${date}-${description.slice(0, 20)}-${Math.abs(amount)}-B${balance}`.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_.]/g, '')
     transactions.push({ date, description, amount, balance, reference, account: 'Santander current', type: amount > 0 ? 'credit' : 'debit' })
   }
-  return transactions
+  return ensureUniqueReferences(transactions)
 }
 
 // Parse credit card CSV
@@ -199,5 +217,5 @@ export function parseCreditCardCSV(csvText) {
       })
     } catch (e) { continue }
   }
-  return transactions
+  return ensureUniqueReferences(transactions)
 }
