@@ -29,6 +29,16 @@ export const getTransactions = async (from, to) => {
   return data
 }
 
+// All reference strings already in the table, used to skip re-importing rows
+// that are already saved.
+export const getExistingReferences = async () => {
+  const { data, error } = await supabase
+    .from('transactions')
+    .select('reference')
+  if (error) throw error
+  return (data || []).map(r => r.reference).filter(Boolean)
+}
+
 export const upsertTransactions = async (transactions) => {
   const { data, error } = await supabase
     .from('transactions')

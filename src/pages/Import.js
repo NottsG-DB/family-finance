@@ -1,8 +1,14 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV, splitCategory, ADD_CATEGORY } from '../lib/categorise'
-import { upsertTransactions } from '../lib/supabase'
+import { upsertTransactions, getExistingReferences } from '../lib/supabase'
 import { useCategories } from '../hooks/useCategories'
 import { formatCurrencyFull } from '../lib/finance'
+
+// Persist the in-progress import review so navigating away and back doesn't lose it.
+const STORAGE_KEY = 'ff_import_session_v1'
+const loadSession = () => {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null } catch { return null }
+}
 
 const TIER_CONFIG = {
   1: { label: 'Tier 1 — High confidence', sub: 'Previously confirmed. Approve all or tap to change.', color: 'var(--green)', badgeClass: 'badge-green' },
@@ -73,13 +79,28 @@ function TierSection({ tier, transactions, overrides, categories, onCategoryChan
 
 export default function Import() {
   const [view, setView] = useState('review')
-  const [transactions, setTransactions] = useState([])
-  const [overrides, setOverrides] = useState({})
-  const [approved, setApproved] = useState({ 1: false, 2: false })
+  const [transactions, setTransactions] = useState(() => loadSession()?.transactions || [])
+  const [overrides, setOverrides] = useState(() => loadSession()?.overrides || {})
+  const [approved, setApproved] = useState(() => loadSession()?.approved || { 1: false, 2: false })
   const [committing, setCommitting] = useState(false)
-  const [committed, setCommitted] = useState(false)
+  const [committed, setCommitted] = useState(() => loadSession()?.committed || false)
   const [dragOver, setDragOver] = useState(false)
   const { categories, addCategory } = useCategories()
+
+  // Persist the review session so it survives navigating away from the Import tab.
+  useEffect(() => {
+    try {
+      if (transactions.length === 0) localStorage.removeItem(STORAGE_KEY)
+      else localStorage.setItem(STORAGE_KEY, JSON.stringify({ transactions, overrides, approved, committed }))
+    } catch (e) { /* ignore quota / private-mode errors */ }
+  }, [transactions, overrides, approved, committed])
+
+  const clearSession = useCallback(() => {
+    setTransactions([])
+    setOverrides({})
+    setApproved({ 1: false, 2: false })
+    setCommitted(false)
+  }, [])
 
   const processFile = useCallback(async (file) => {
     // Santander exports (XLS-as-HTML and Midata CSV) are ISO-8859-1, where £ is the
@@ -100,7 +121,12 @@ export default function Import() {
       parsed = parseSantanderHTML(latin1)
     }
     const categorised = categoriseBatch(parsed)
-    setTransactions(categorised)
+    // Skip rows already in Supabase: tag each with alreadySaved so re-imports only
+    // surface new transactions. Falls back to treating all as new if the lookup fails.
+    let existing = new Set()
+    try { existing = new Set(await getExistingReferences()) } catch (e) { console.error(e) }
+    const marked = categorised.map(tx => ({ ...tx, alreadySaved: existing.has(tx.reference) }))
+    setTransactions(marked)
     setOverrides({})
     setApproved({ 1: false, 2: false })
     setCommitted(false)
@@ -136,6 +162,7 @@ export default function Import() {
     try {
       const toCommit = transactions
         .filter(tx => {
+          if (tx.alreadySaved) return false
           if (tx.tier === 3) return !!overrides[tx.reference]
           if (tx.tier === 1) return approved[1]
           if (tx.tier === 2) return approved[2]
@@ -170,11 +197,14 @@ export default function Import() {
     }
   }
 
-  const tier1 = transactions.filter(tx => tx.tier === 1)
-  const tier2 = transactions.filter(tx => tx.tier === 2)
-  const tier3 = transactions.filter(tx => tx.tier === 3)
+  // Only new (not-yet-saved) rows are reviewed/committed; already-saved ones are skipped.
+  const newTx = transactions.filter(tx => !tx.alreadySaved)
+  const alreadyCount = transactions.length - newTx.length
+  const tier1 = newTx.filter(tx => tx.tier === 1)
+  const tier2 = newTx.filter(tx => tx.tier === 2)
+  const tier3 = newTx.filter(tx => tx.tier === 3)
 
-  const summaryData = transactions.reduce((acc, tx) => {
+  const summaryData = newTx.reduce((acc, tx) => {
     if (tx.amount >= 0 || tx.category === 'Internal') return acc
     const key = `${tx.category} — ${tx.subcategory}`
     acc[key] = (acc[key] || 0) + Math.abs(tx.amount)
@@ -210,12 +240,29 @@ export default function Import() {
 
           {transactions.length > 0 && (
             <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  {alreadyCount > 0
+                    ? `${alreadyCount} already imported — skipped · ${newTx.length} new`
+                    : `${newTx.length} new transactions`}
+                </div>
+                <button onClick={clearSession} style={{ fontSize: 11, padding: '3px 8px', background: 'none', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-2)', cursor: 'pointer' }}>
+                  Clear
+                </button>
+              </div>
+
               <div className="metric-grid" style={{ marginBottom: '1rem' }}>
-                <div className="metric"><div className="metric-label">Transactions</div><div className="metric-value blue">{transactions.length}</div></div>
+                <div className="metric"><div className="metric-label">New</div><div className="metric-value blue">{newTx.length}</div></div>
                 <div className="metric"><div className="metric-label">Auto-assigned</div><div className="metric-value green">{tier1.length + tier2.length}</div></div>
                 <div className="metric"><div className="metric-label">Needs review</div><div className="metric-value amber">{tier3.length}</div></div>
-                <div className="metric"><div className="metric-label">Total spend</div><div className="metric-value red">{formatCurrencyFull(transactions.filter(tx => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0))}</div></div>
+                <div className="metric"><div className="metric-label">Total spend</div><div className="metric-value red">{formatCurrencyFull(newTx.filter(tx => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0))}</div></div>
               </div>
+
+              {newTx.length === 0 && (
+                <div className="alert" style={{ marginBottom: '1rem' }}>
+                  Every transaction in this file is already in your data — nothing new to import.
+                </div>
+              )}
 
               <div className="divider" />
               <TierSection tier={1} transactions={tier1} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
