@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { DEFAULTS, MORTGAGE_PARTS, effectiveMarginalRate, formatCurrencyFull, formatCurrency, payoffMonths, monthlyMortgagePayment } from '../lib/finance'
+import { DEFAULTS, effectiveMarginalRate, formatCurrencyFull, formatCurrency } from '../lib/finance'
 
 const BASE_INCOME = 8095
 const BASE_FIXED = 1820 // fixed costs excl ISA and mortgage

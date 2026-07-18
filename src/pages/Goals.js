@@ -31,7 +31,7 @@ const PRIORITY_BADGE = { high: 'badge-green', medium: 'badge-blue', low: 'badge-
 export default function Goals() {
   const [goals, setGoals] = useState(DEFAULT_GOALS)
   const [surplus, setSurplus] = useState(500)
-  const [loading, setLoading] = useState(true)
+  const [, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [newGoal, setNewGoal] = useState({ name: '', emoji: '⭐', target: '', saved: '', monthly: '', priority: 'medium', ongoing: false })
 

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { getTransactions } from '../lib/supabase'
 import { summariseByCategory, totalIncome, totalSpend, formatCurrencyFull } from '../lib/finance'
 
-const CATEGORY_COLORS = { A: '#378ADD', B: '#1D9E75', C: '#BA7517', Income: '#1D9E75', Internal: '#888' }
 
 export default function Overview() {
   const [transactions, setTransactions] = useState([])

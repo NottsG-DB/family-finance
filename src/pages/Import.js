@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { categoriseBatch, parseSantanderHTML, parseCreditCardCSV } from '../lib/categorise'
-import { upsertTransactions, updateTransactionCategory } from '../lib/supabase'
+import { upsertTransactions } from '../lib/supabase'
 import { formatCurrencyFull } from '../lib/finance'
 
 const ALL_CATS = [
