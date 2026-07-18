@@ -23,7 +23,7 @@ const TIER_CONFIG = {
   3: { label: 'Tier 3 — Needs your input', sub: 'Unknown payees. Assign a category below.', color: 'var(--red)', badgeClass: 'badge-red' },
 }
 
-function TierSection({ tier, transactions, onCategoryChange, onApproveAll, approved }) {
+function TierSection({ tier, transactions, overrides, onCategoryChange, onApproveAll, approved }) {
   const cfg = TIER_CONFIG[tier]
   const total = transactions.reduce((s, tx) => s + Math.abs(tx.amount), 0)
   if (transactions.length === 0) return null
@@ -47,20 +47,25 @@ function TierSection({ tier, transactions, onCategoryChange, onApproveAll, appro
           <div style={{ fontSize: 12, fontWeight: 500, color: tx.amount < 0 ? 'var(--red)' : 'var(--green)', flexShrink: 0, minWidth: 60, textAlign: 'right' }}>
             {tx.amount >= 0 ? '+' : ''}{formatCurrencyFull(tx.amount)}
           </div>
-          {tier < 3 ? (
-            <span className={`badge ${cfg.badgeClass}`} style={{ fontSize: 10, flexShrink: 0, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {tx.subcategory}
-            </span>
-          ) : (
-            <select
-              value={tx._override || ''}
-              onChange={e => onCategoryChange(tx.reference || i, e.target.value)}
-              style={{ fontSize: 11, padding: '3px 6px', maxWidth: 140 }}
-            >
-              <option value="">— assign —</option>
-              {ALL_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          )}
+          {(() => {
+            const autoCat = `${tx.category} — ${tx.subcategory}`
+            // Tier 1/2 default to their auto-guess; tier 3 starts unassigned. Overrides win.
+            const current = overrides[tx.reference] != null ? overrides[tx.reference] : (tier < 3 ? autoCat : '')
+            const edited = overrides[tx.reference] != null && overrides[tx.reference] !== autoCat
+            // Keep the current value selectable even if it isn't one of the standard options.
+            const opts = (!current || ALL_CATS.includes(current)) ? ALL_CATS : [current, ...ALL_CATS]
+            return (
+              <select
+                value={current}
+                onChange={e => onCategoryChange(tx.reference || i, e.target.value)}
+                title={tier < 3 ? `Auto-assigned: ${autoCat}${edited ? ' · changed' : ''}` : 'Assign a category'}
+                style={{ fontSize: 11, padding: '3px 6px', maxWidth: 150, flexShrink: 0, borderColor: edited ? 'var(--blue)' : undefined, fontWeight: edited ? 500 : undefined }}
+              >
+                <option value="">— assign —</option>
+                {opts.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )
+          })()}
         </div>
       ))}
 
@@ -144,7 +149,13 @@ export default function Import() {
         })
         .map(tx => {
           const override = overrides[tx.reference]
-          const [cat, sub] = override ? override.split(' — ') : [tx.category, tx.subcategory]
+          let cat = tx.category, sub = tx.subcategory
+          if (override) {
+            // Split on the FIRST ' — ' only, so subcategories like 'Oscar — school' survive.
+            const sep = override.indexOf(' — ')
+            cat = sep === -1 ? override : override.slice(0, sep)
+            sub = sep === -1 ? '' : override.slice(sep + 3)
+          }
           return { ...tx, category: cat, subcategory: sub, reviewed: true }
         })
       await upsertTransactions(toCommit)
@@ -205,9 +216,9 @@ export default function Import() {
               </div>
 
               <div className="divider" />
-              <TierSection tier={1} transactions={tier1} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
-              <TierSection tier={2} transactions={tier2} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[2]} />
-              <TierSection tier={3} transactions={tier3} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[3]} />
+              <TierSection tier={1} transactions={tier1} overrides={overrides} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
+              <TierSection tier={2} transactions={tier2} overrides={overrides} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[2]} />
+              <TierSection tier={3} transactions={tier3} overrides={overrides} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[3]} />
 
               <div className="divider" />
               {committed
