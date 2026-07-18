@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { getTransactions, updateTransactionCategory } from '../lib/supabase'
-import { ALL_CATEGORIES, splitCategory } from '../lib/categorise'
+import { splitCategory, ADD_CATEGORY } from '../lib/categorise'
+import { useCategories } from '../hooks/useCategories'
 import { summariseByCategory, totalIncome, totalSpend, formatCurrencyFull } from '../lib/finance'
 
 
@@ -12,6 +13,7 @@ export default function Overview() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
   const [openSection, setOpenSection] = useState(null)
+  const { categories, addCategory } = useCategories()
 
   useEffect(() => {
     const [y, m] = month.split('-')
@@ -36,8 +38,12 @@ export default function Overview() {
   const toggle = (s) => setOpenSection(openSection === s ? null : s)
 
   const changeCategory = async (tx, value) => {
-    if (!value) return
-    const [category, subcategory] = splitCategory(value)
+    let selected = value
+    if (value === ADD_CATEGORY) {
+      selected = await addCategory()
+    }
+    if (!selected) return
+    const [category, subcategory] = splitCategory(selected)
     const prev = transactions
     // Optimistic update so the totals and A/B/C sections re-derive immediately.
     setTransactions(txs => txs.map(t => (t.id === tx.id ? { ...t, category, subcategory, reviewed: true } : t)))
@@ -134,7 +140,7 @@ export default function Overview() {
                     <span style={{ flexShrink: 0 }}>·</span>
                     {(() => {
                       const cur = `${tx.category} — ${tx.subcategory}`
-                      const opts = ALL_CATEGORIES.includes(cur) ? ALL_CATEGORIES : [cur, ...ALL_CATEGORIES]
+                      const opts = categories.includes(cur) ? categories : [cur, ...categories]
                       return (
                         <select
                           value={cur}
@@ -143,6 +149,7 @@ export default function Overview() {
                           style={{ fontSize: 11, padding: '1px 4px', maxWidth: 170 }}
                         >
                           {opts.map(c => <option key={c} value={c}>{c}</option>)}
+                          <option value={ADD_CATEGORY}>＋ Add new category…</option>
                         </select>
                       )
                     })()}

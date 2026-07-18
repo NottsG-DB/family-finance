@@ -26,6 +26,24 @@ export function splitCategory(value) {
   return sep === -1 ? [value, ''] : [value.slice(0, sep), value.slice(sep + 3)]
 }
 
+// The five fixed top-level buckets. New categories are always a subcategory under one
+// of these, so the Overview A/B/C summary sections keep working.
+export const CATEGORY_BUCKETS = ['A', 'B', 'C', 'Income', 'Internal']
+
+// Sentinel value used as the "＋ Add new category…" dropdown option.
+export const ADD_CATEGORY = '__add_new_category__'
+
+// Prompt the user to define a new subcategory under an existing bucket.
+// Returns a 'Bucket — Subcategory' string, or null if cancelled/invalid.
+export function promptForNewCategory() {
+  const name = (window.prompt('New category — name of the subcategory?') || '').trim()
+  if (!name) return null
+  const raw = (window.prompt('Which bucket? A = fixed · B = essential-ish · C = discretionary · or Income / Internal', 'C') || '').trim()
+  const bucket = CATEGORY_BUCKETS.find(b => b.toLowerCase() === raw.toLowerCase())
+  if (!bucket) { window.alert('Bucket must be one of: A, B, C, Income, Internal.'); return null }
+  return `${bucket} — ${name}`
+}
+
 export const DEFAULT_RULES = [
   // A — Fixed
   { pattern: /SANTANDER MORTGAGE/i, category: 'A', subcategory: 'Mortgage', confidence: 1 },

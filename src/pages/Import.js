@@ -1,9 +1,8 @@
 import React, { useState, useCallback } from 'react'
-import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV, splitCategory, ALL_CATEGORIES } from '../lib/categorise'
+import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV, splitCategory, ADD_CATEGORY } from '../lib/categorise'
 import { upsertTransactions } from '../lib/supabase'
+import { useCategories } from '../hooks/useCategories'
 import { formatCurrencyFull } from '../lib/finance'
-
-const ALL_CATS = ALL_CATEGORIES
 
 const TIER_CONFIG = {
   1: { label: 'Tier 1 — High confidence', sub: 'Previously confirmed. Approve all or tap to change.', color: 'var(--green)', badgeClass: 'badge-green' },
@@ -11,7 +10,7 @@ const TIER_CONFIG = {
   3: { label: 'Tier 3 — Needs your input', sub: 'Unknown payees. Assign a category below.', color: 'var(--red)', badgeClass: 'badge-red' },
 }
 
-function TierSection({ tier, transactions, overrides, onCategoryChange, onApproveAll, approved }) {
+function TierSection({ tier, transactions, overrides, categories, onCategoryChange, onApproveAll, approved }) {
   const cfg = TIER_CONFIG[tier]
   const total = transactions.reduce((s, tx) => s + Math.abs(tx.amount), 0)
   if (transactions.length === 0) return null
@@ -41,7 +40,7 @@ function TierSection({ tier, transactions, overrides, onCategoryChange, onApprov
             const current = overrides[tx.reference] != null ? overrides[tx.reference] : (tier < 3 ? autoCat : '')
             const edited = overrides[tx.reference] != null && overrides[tx.reference] !== autoCat
             // Keep the current value selectable even if it isn't one of the standard options.
-            const opts = (!current || ALL_CATS.includes(current)) ? ALL_CATS : [current, ...ALL_CATS]
+            const opts = (!current || categories.includes(current)) ? categories : [current, ...categories]
             return (
               <select
                 value={current}
@@ -51,6 +50,7 @@ function TierSection({ tier, transactions, overrides, onCategoryChange, onApprov
               >
                 <option value="">— assign —</option>
                 {opts.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value={ADD_CATEGORY}>＋ Add new category…</option>
               </select>
             )
           })()}
@@ -79,6 +79,7 @@ export default function Import() {
   const [committing, setCommitting] = useState(false)
   const [committed, setCommitted] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const { categories, addCategory } = useCategories()
 
   const processFile = useCallback(async (file) => {
     // Santander exports (XLS-as-HTML and Midata CSV) are ISO-8859-1, where £ is the
@@ -117,7 +118,12 @@ export default function Import() {
     if (file) processFile(file)
   }, [processFile])
 
-  const handleCategoryChange = (ref, value) => {
+  const handleCategoryChange = async (ref, value) => {
+    if (value === ADD_CATEGORY) {
+      const c = await addCategory()
+      if (c) setOverrides(prev => ({ ...prev, [ref]: c }))
+      return
+    }
     setOverrides(prev => ({ ...prev, [ref]: value }))
   }
 
@@ -212,9 +218,9 @@ export default function Import() {
               </div>
 
               <div className="divider" />
-              <TierSection tier={1} transactions={tier1} overrides={overrides} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
-              <TierSection tier={2} transactions={tier2} overrides={overrides} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[2]} />
-              <TierSection tier={3} transactions={tier3} overrides={overrides} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[3]} />
+              <TierSection tier={1} transactions={tier1} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
+              <TierSection tier={2} transactions={tier2} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[2]} />
+              <TierSection tier={3} transactions={tier3} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[3]} />
 
               <div className="divider" />
               {committed

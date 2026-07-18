@@ -45,6 +45,24 @@ export const updateTransactionCategory = async (id, category, subcategory) => {
   if (error) throw error
 }
 
+// Custom categories (user-added subcategories), stored as JSON in the settings table
+export const getCustomCategories = async () => {
+  const { data, error } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'custom_categories')
+    .maybeSingle()
+  if (error) throw error
+  try { return data?.value ? JSON.parse(data.value) : [] } catch { return [] }
+}
+
+export const saveCustomCategories = async (categories) => {
+  const { error } = await supabase
+    .from('settings')
+    .upsert({ key: 'custom_categories', value: JSON.stringify(categories) }, { onConflict: 'key' })
+  if (error) throw error
+}
+
 // Categorisation rules
 export const getRules = async () => {
   const { data, error } = await supabase
