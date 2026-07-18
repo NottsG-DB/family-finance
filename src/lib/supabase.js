@@ -73,6 +73,24 @@ export const saveCustomCategories = async (categories) => {
   if (error) throw error
 }
 
+// Transactions the user has flagged as one-offs, excluded from tracker averages
+export const getExcludedFromAverage = async () => {
+  const { data, error } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'excluded_from_average')
+    .maybeSingle()
+  if (error) throw error
+  try { return data?.value ? JSON.parse(data.value) : [] } catch { return [] }
+}
+
+export const saveExcludedFromAverage = async (references) => {
+  const { error } = await supabase
+    .from('settings')
+    .upsert({ key: 'excluded_from_average', value: JSON.stringify(references) }, { onConflict: 'key' })
+  if (error) throw error
+}
+
 // Categorisation rules
 export const getRules = async () => {
   const { data, error } = await supabase

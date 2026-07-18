@@ -8,6 +8,7 @@ import WhatIf from './pages/WhatIf'
 import Position from './pages/Position'
 import Import from './pages/Import'
 import Goals from './pages/Goals'
+import Tracker from './pages/Tracker'
 import './App.css'
 
 function Login() {
@@ -53,6 +54,9 @@ function Nav() {
         <NavLink to="/goals" className={({isActive}) => isActive ? 'nav-link active' : 'nav-link'}>
           <span className="nav-icon">◎</span><span className="nav-label">Goals</span>
         </NavLink>
+        <NavLink to="/tracker" className={({isActive}) => isActive ? 'nav-link active' : 'nav-link'}>
+          <span className="nav-icon">◔</span><span className="nav-label">Tracker</span>
+        </NavLink>
         <NavLink to="/whatif" className={({isActive}) => isActive ? 'nav-link active' : 'nav-link'}>
           <span className="nav-icon">⇌</span><span className="nav-label">What if</span>
         </NavLink>
@@ -79,6 +83,7 @@ function ProtectedApp() {
           <Route path="/mortgage" element={<Mortgage />} />
           <Route path="/position" element={<Position />} />
           <Route path="/goals" element={<Goals />} />
+          <Route path="/tracker" element={<Tracker />} />
           <Route path="/whatif" element={<WhatIf />} />
           <Route path="/import" element={<Import />} />
         </Routes>

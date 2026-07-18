@@ -164,3 +164,70 @@ export function totalSpend(transactions) {
     .filter(tx => tx.category !== 'Internal' && tx.category !== 'Income' && tx.amount < 0)
     .reduce((s, tx) => s + Math.abs(tx.amount), 0)
 }
+
+// ---- Annual tracker: monthly time-series + trailing-average projections ----
+
+// 'YYYY-MM-DD' -> 'YYYY-MM'
+export function monthKey(dateStr) {
+  return (dateStr || '').slice(0, 7)
+}
+
+// The n month-keys ending at (and including) `end`'s month, oldest first.
+export function lastNMonthKeys(n, end = new Date()) {
+  const y = end.getFullYear(), m = end.getMonth()
+  const keys = []
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(y, m - i, 1)
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return keys
+}
+
+// The n month-keys immediately AFTER `afterKey`, oldest first.
+export function nextNMonthKeys(n, afterKey) {
+  const [y, m] = afterKey.split('-').map(Number)
+  const keys = []
+  for (let i = 1; i <= n; i++) {
+    const d = new Date(y, (m - 1) + i, 1)
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+  }
+  return keys
+}
+
+// 'YYYY-MM' -> "Aug '25"
+export function formatMonthShort(key) {
+  const [y, m] = key.split('-').map(Number)
+  const name = new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short' })
+  return `${name} '${String(y).slice(2)}`
+}
+
+// Build the tracker model over the given (past) month window.
+// - series: actual monthly spend per bucket A/B/C (all transactions, truthful history)
+// - categories: per 'Bucket — Subcategory' total/avg/projection, EXCLUDING refs in
+//   excludedSet (one-off transactions the user has flagged), each with its txs for drill-down
+// - bucketAvg: trailing monthly average per bucket, used for the projection line
+export function computeTracker(transactions, monthKeys, excludedSet = new Set()) {
+  const idx = Object.fromEntries(monthKeys.map((k, i) => [k, i]))
+  const series = { A: monthKeys.map(() => 0), B: monthKeys.map(() => 0), C: monthKeys.map(() => 0) }
+  const catMap = {}
+  for (const tx of transactions) {
+    if (!(tx.amount < 0)) continue
+    const b = tx.category
+    if (b !== 'A' && b !== 'B' && b !== 'C') continue
+    const k = monthKey(tx.date)
+    if (!(k in idx)) continue
+    const abs = Math.abs(tx.amount)
+    series[b][idx[k]] += abs
+    const key = `${b} — ${tx.subcategory}`
+    if (!catMap[key]) catMap[key] = { key, bucket: b, subcategory: tx.subcategory, total: 0, txs: [] }
+    catMap[key].txs.push(tx)
+    if (!excludedSet.has(tx.reference)) catMap[key].total += abs
+  }
+  const months = monthKeys.length || 12
+  const categories = Object.values(catMap)
+    .map(c => ({ ...c, avgMonthly: c.total / months, projectedAnnual: (c.total / months) * 12 }))
+    .sort((a, b) => b.avgMonthly - a.avgMonthly)
+  const bucketAvg = { A: 0, B: 0, C: 0 }
+  for (const c of categories) bucketAvg[c.bucket] += c.avgMonthly
+  return { series, categories, bucketAvg }
+}
