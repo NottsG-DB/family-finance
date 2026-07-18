@@ -83,7 +83,7 @@ export default function Import() {
   const [overrides, setOverrides] = useState(() => loadSession()?.overrides || {})
   const [approved, setApproved] = useState(() => loadSession()?.approved || { 1: false, 2: false })
   const [committing, setCommitting] = useState(false)
-  const [committed, setCommitted] = useState(() => loadSession()?.committed || false)
+  const [savedCount, setSavedCount] = useState(() => loadSession()?.savedCount || 0)
   const [dragOver, setDragOver] = useState(false)
   const { categories, addCategory } = useCategories()
 
@@ -91,15 +91,15 @@ export default function Import() {
   useEffect(() => {
     try {
       if (transactions.length === 0) localStorage.removeItem(STORAGE_KEY)
-      else localStorage.setItem(STORAGE_KEY, JSON.stringify({ transactions, overrides, approved, committed }))
+      else localStorage.setItem(STORAGE_KEY, JSON.stringify({ transactions, overrides, approved, savedCount }))
     } catch (e) { /* ignore quota / private-mode errors */ }
-  }, [transactions, overrides, approved, committed])
+  }, [transactions, overrides, approved, savedCount])
 
   const clearSession = useCallback(() => {
     setTransactions([])
     setOverrides({})
     setApproved({ 1: false, 2: false })
-    setCommitted(false)
+    setSavedCount(0)
   }, [])
 
   const processFile = useCallback(async (file) => {
@@ -129,7 +129,7 @@ export default function Import() {
     setTransactions(marked)
     setOverrides({})
     setApproved({ 1: false, 2: false })
-    setCommitted(false)
+    setSavedCount(0)
   }, [])
 
   const onDrop = useCallback(async (e) => {
@@ -157,38 +157,45 @@ export default function Import() {
     setApproved(prev => ({ ...prev, [tier]: true }))
   }
 
+  // Whether a transaction is ready to save right now (approved tier, or assigned tier 3).
+  const isReady = (tx) => {
+    if (tx.alreadySaved) return false
+    if (tx.tier === 3) return !!overrides[tx.reference]
+    if (tx.tier === 1) return approved[1]
+    if (tx.tier === 2) return approved[2]
+    return false
+  }
+
+  // Commit only what's ready now, in batches. Saved rows are marked alreadySaved so
+  // they drop out of the pending list and you can keep working through the rest.
   const commit = async () => {
+    const pending = transactions.filter(isReady)
+    if (pending.length === 0) return
     setCommitting(true)
     try {
-      const toCommit = transactions
-        .filter(tx => {
-          if (tx.alreadySaved) return false
-          if (tx.tier === 3) return !!overrides[tx.reference]
-          if (tx.tier === 1) return approved[1]
-          if (tx.tier === 2) return approved[2]
-          return false
-        })
-        .map(tx => {
-          const override = overrides[tx.reference]
-          const [cat, sub] = override ? splitCategory(override) : [tx.category, tx.subcategory]
-          // Only send columns that exist on the transactions table. categoriseBatch
-          // adds `confidence` and `tier` for the UI, which PostgREST rejects (PGRST204)
-          // and which would fail the entire upsert if spread in.
-          return {
-            date: tx.date,
-            description: tx.description,
-            amount: tx.amount,
-            balance: tx.balance,
-            reference: tx.reference,
-            account: tx.account,
-            type: tx.type,
-            category: cat,
-            subcategory: sub,
-            reviewed: true,
-          }
-        })
+      const toCommit = pending.map(tx => {
+        const override = overrides[tx.reference]
+        const [cat, sub] = override ? splitCategory(override) : [tx.category, tx.subcategory]
+        // Only send columns that exist on the transactions table. categoriseBatch
+        // adds `confidence` and `tier` for the UI, which PostgREST rejects (PGRST204)
+        // and which would fail the entire upsert if spread in.
+        return {
+          date: tx.date,
+          description: tx.description,
+          amount: tx.amount,
+          balance: tx.balance,
+          reference: tx.reference,
+          account: tx.account,
+          type: tx.type,
+          category: cat,
+          subcategory: sub,
+          reviewed: true,
+        }
+      })
       await upsertTransactions(toCommit)
-      setCommitted(true)
+      const savedRefs = new Set(pending.map(tx => tx.reference))
+      setTransactions(prev => prev.map(tx => (savedRefs.has(tx.reference) ? { ...tx, alreadySaved: true } : tx)))
+      setSavedCount(n => n + pending.length)
     } catch (e) {
       console.error(e)
       alert('Error saving transactions. Check your Supabase connection.')
@@ -203,6 +210,7 @@ export default function Import() {
   const tier1 = newTx.filter(tx => tx.tier === 1)
   const tier2 = newTx.filter(tx => tx.tier === 2)
   const tier3 = newTx.filter(tx => tx.tier === 3)
+  const readyCount = newTx.filter(isReady).length
 
   const summaryData = newTx.reduce((acc, tx) => {
     if (tx.amount >= 0 || tx.category === 'Internal') return acc
@@ -259,23 +267,34 @@ export default function Import() {
               </div>
 
               {newTx.length === 0 && (
-                <div className="alert" style={{ marginBottom: '1rem' }}>
-                  Every transaction in this file is already in your data — nothing new to import.
+                <div className={savedCount > 0 ? 'alert-success' : 'alert'} style={{ marginBottom: '1rem' }}>
+                  {savedCount > 0
+                    ? `All done — ${savedCount} transaction${savedCount === 1 ? '' : 's'} saved this session. They'll appear in the Overview once the month is selected.`
+                    : 'Every transaction in this file is already in your data — nothing new to import.'}
                 </div>
               )}
 
-              <div className="divider" />
-              <TierSection tier={1} transactions={tier1} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
-              <TierSection tier={2} transactions={tier2} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[2]} />
-              <TierSection tier={3} transactions={tier3} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[3]} />
+              {newTx.length > 0 && (
+                <>
+                  <div className="divider" />
+                  <TierSection tier={1} transactions={tier1} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[1]} />
+                  <TierSection tier={2} transactions={tier2} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[2]} />
+                  <TierSection tier={3} transactions={tier3} overrides={overrides} categories={categories} onCategoryChange={handleCategoryChange} onApproveAll={handleApproveAll} approved={approved[3]} />
 
-              <div className="divider" />
-              {committed
-                ? <div className="alert-success">Transactions saved. They'll appear in the Overview once the month is selected.</div>
-                : <button className="btn-primary btn-block" onClick={commit} disabled={committing} style={{ padding: 12 }}>
-                    {committing ? 'Saving…' : `Commit approved transactions to database`}
+                  <div className="divider" />
+                  {savedCount > 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6, textAlign: 'center' }}>
+                      ✓ {savedCount} saved so far · {newTx.length} still to review
+                    </div>
+                  )}
+                  <button className="btn-primary btn-block" onClick={commit} disabled={committing || readyCount === 0} style={{ padding: 12 }}>
+                    {committing ? 'Saving…' : readyCount > 0 ? `Save ${readyCount} ready transaction${readyCount === 1 ? '' : 's'}` : 'Assign or approve some to save'}
                   </button>
-              }
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', textAlign: 'center', marginTop: 6 }}>
+                    Save in batches — assign a few, save them, and the rest stay here for later.
+                  </div>
+                </>
+              )}
             </>
           )}
         </>
