@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV, splitCategory, ADD_CATEGORY } from '../lib/categorise'
-import { upsertTransactions, getExistingReferences } from '../lib/supabase'
+import { categoriseBatch, parseSantanderHTML, parseSantanderMidata, parseCreditCardCSV, splitCategory, ADD_CATEGORY, merchantKey, rulesFromRows } from '../lib/categorise'
+import { upsertTransactions, getExistingReferences, getRules, upsertRule } from '../lib/supabase'
 import { useCategories } from '../hooks/useCategories'
 import { formatCurrencyFull } from '../lib/finance'
 
@@ -85,7 +85,13 @@ export default function Import() {
   const [committing, setCommitting] = useState(false)
   const [savedCount, setSavedCount] = useState(() => loadSession()?.savedCount || 0)
   const [dragOver, setDragOver] = useState(false)
+  const [learnedRules, setLearnedRules] = useState([])
   const { categories, addCategory } = useCategories()
+
+  // Load learned rules for the "Learned rules" tab; reload after each save batch.
+  useEffect(() => {
+    getRules().then(setLearnedRules).catch(() => setLearnedRules([]))
+  }, [savedCount])
 
   // Persist the review session so it survives navigating away from the Import tab.
   useEffect(() => {
@@ -120,7 +126,10 @@ export default function Import() {
     } else {
       parsed = parseSantanderHTML(latin1)
     }
-    const categorised = categoriseBatch(parsed)
+    // Apply learned rules (from your past assignments) on top of the built-in ones.
+    let learned = []
+    try { learned = rulesFromRows(await getRules()) } catch (e) { console.error(e) }
+    const categorised = categoriseBatch(parsed, learned)
     // Skip rows already in Supabase: tag each with alreadySaved so re-imports only
     // surface new transactions. Falls back to treating all as new if the lookup fails.
     let existing = new Set()
@@ -193,6 +202,16 @@ export default function Import() {
         }
       })
       await upsertTransactions(toCommit)
+      // Learn from manual assignments: the same merchant will auto-categorise next time.
+      const learnSeen = new Set()
+      for (const tx of pending) {
+        if (!overrides[tx.reference]) continue
+        const key = merchantKey(tx.description)
+        if (!key || learnSeen.has(key)) continue
+        learnSeen.add(key)
+        const [cat, sub] = splitCategory(overrides[tx.reference])
+        upsertRule(key, cat, sub, 1).catch(e => console.error('learn rule failed', e))
+      }
       const savedRefs = new Set(pending.map(tx => tx.reference))
       setTransactions(prev => prev.map(tx => (savedRefs.has(tx.reference) ? { ...tx, alreadySaved: true } : tx)))
       setSavedCount(n => n + pending.length)
@@ -337,38 +356,24 @@ export default function Import() {
       {view === 'rules' && (
         <>
           <div className="alert" style={{ marginBottom: 12 }}>
-            Rules are built from your confirmed categorisations. Matches are case-insensitive and grow with each import.
+            These rules are learned from categories you assign. Assign a category to an unknown payee and commit — next time a transaction from that merchant auto-categorises. Built-in rules (Tesco, salary, mortgage, etc.) also apply on top.
           </div>
-          <div className="card">
-            <div className="card-body">
-              {[
-                { pattern: 'TESCO, ASDA, MORR, M&S, SAINSBURY…', cat: 'B — Groceries', conf: 1 },
-                { pattern: '3M UK', cat: 'Income — Gavin wages', conf: 1 },
-                { pattern: 'NOTTINGHAM TRENT', cat: 'Income — Claire wages', conf: 1 },
-                { pattern: 'SANTANDER MORTGAGE', cat: 'A — Mortgage', conf: 1 },
-                { pattern: 'OCTOPUS ENERGY', cat: 'A — Energy', conf: 1 },
-                { pattern: 'HLAM ISA / S&S ISA', cat: 'A — Stocks ISA', conf: 1 },
-                { pattern: 'SNOWCOMPARE, OXYGENE SKI, RYANAIR…', cat: 'C — Holidays', conf: 1 },
-                { pattern: 'BOLT MEDICAL', cat: 'C — Health', conf: 1 },
-                { pattern: 'RUSHCLIFFE VET', cat: 'C — Cats', conf: 1 },
-                { pattern: 'SUSTRANS, RED CROSS, GREENPEACE…', cat: 'C — Charity', conf: 1 },
-                { pattern: 'WOLF MOON, SCAMP AND DUDE', cat: 'C — Gifting', conf: 1 },
-                { pattern: 'KLARNA', cat: 'C — Clothing and sport', conf: 0.7 },
-                { pattern: 'AMAZON', cat: 'C — Other', conf: 0.6 },
-                { pattern: 'TRANSFER TO/FROM CLAIRE PHIPPS', cat: 'Internal — Transfer', conf: 1 },
-              ].map(rule => (
-                <div className="line-item" key={rule.pattern}>
-                  <span className="line-key" style={{ fontSize: 11, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{rule.pattern}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    <span className={`badge ${rule.conf >= 1 ? 'badge-green' : rule.conf >= 0.7 ? 'badge-blue' : 'badge-amber'}`}>
-                      {rule.conf >= 1 ? 'High' : rule.conf >= 0.7 ? 'Medium' : 'Low'}
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 500 }}>{rule.cat}</span>
-                  </div>
-                </div>
-              ))}
+          {learnedRules.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-3)', fontSize: 13 }}>
+              No learned rules yet. Assign categories to unknown transactions and they'll appear here.
             </div>
-          </div>
+          ) : (
+            <div className="card">
+              <div className="card-body">
+                {learnedRules.map(rule => (
+                  <div className="line-item" key={rule.merchant_pattern}>
+                    <span className="line-key" style={{ fontSize: 11, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>{rule.merchant_pattern}</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, flexShrink: 0 }}>{rule.category} — {rule.subcategory}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

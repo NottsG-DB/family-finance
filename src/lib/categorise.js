@@ -108,6 +108,39 @@ export const DEFAULT_RULES = [
   { pattern: /V12 RETAIL/i, category: 'A', subcategory: 'Credit card', confidence: 1 },
 ]
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Derive a stable merchant signature from a bank description, so a user's assignment
+// (e.g. Screwfix → Home improvements) can be re-applied to future transactions from the
+// same merchant. Strips wallet tags, dated suffixes, refs and long numbers, then keeps
+// the first few words. 'SCREWFIX DIRECT LTD (VIA APPLE PAY), ON 17-06-2026' → 'SCREWFIX DIRECT LTD'.
+export function merchantKey(description) {
+  const cleaned = (description || '')
+    .toUpperCase()
+    .replace(/\(VIA (APPLE|GOOGLE|SAMSUNG) PAY\)/g, '')
+    .replace(/,?\s*ON \d{2}[-/]\d{2}[-/]\d{2,4}.*$/, '')
+    .replace(/\bREF[:\s].*$/, '')
+    .replace(/\b\d{4,}\b/g, '')
+    .replace(/[^A-Z0-9&' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return cleaned.split(' ').filter(Boolean).slice(0, 3).join(' ')
+}
+
+// Convert stored categorisation_rules rows into rule objects the engine can match.
+export function rulesFromRows(rows) {
+  return (rows || [])
+    .filter(r => r && r.merchant_pattern)
+    .map(r => ({
+      pattern: new RegExp(escapeRegex(r.merchant_pattern), 'i'),
+      category: r.category,
+      subcategory: r.subcategory,
+      confidence: r.confidence == null ? 1 : Number(r.confidence),
+    }))
+}
+
 export function categorise(merchantDescription, customRules = []) {
   const allRules = [...customRules, ...DEFAULT_RULES]
   for (const rule of allRules) {

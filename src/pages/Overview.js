@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { getTransactions, updateTransactionCategory } from '../lib/supabase'
-import { splitCategory, ADD_CATEGORY } from '../lib/categorise'
+import { getTransactions, updateTransactionCategory, upsertRule } from '../lib/supabase'
+import { splitCategory, ADD_CATEGORY, merchantKey } from '../lib/categorise'
 import { useCategories } from '../hooks/useCategories'
 import { summariseByCategory, totalIncome, totalSpend, formatCurrencyFull } from '../lib/finance'
 
@@ -49,6 +49,9 @@ export default function Overview() {
     setTransactions(txs => txs.map(t => (t.id === tx.id ? { ...t, category, subcategory, reviewed: true } : t)))
     try {
       await updateTransactionCategory(tx.id, category, subcategory)
+      // Learn from this change so the same merchant auto-categorises on future imports.
+      const key = merchantKey(tx.description)
+      if (key) upsertRule(key, category, subcategory, 1).catch(e => console.error('learn rule failed', e))
     } catch (e) {
       console.error(e)
       setTransactions(prev) // revert on failure
