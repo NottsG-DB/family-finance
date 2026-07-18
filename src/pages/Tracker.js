@@ -38,10 +38,23 @@ export default function Tracker() {
   }, [pastMonths])
 
   const excludedSet = useMemo(() => new Set(excluded), [excluded])
-  const { series, categories, bucketAvg } = useMemo(
+  const { series, categories, bucketAvg, monthsWithData } = useMemo(
     () => computeTracker(transactions, pastMonths, excludedSet),
     [transactions, pastMonths, excludedSet]
   )
+
+  // Trim leading months that have no imported data so the chart doesn't show a
+  // misleading £0 run before your history starts.
+  const firstDataIdx = useMemo(() => {
+    const i = pastMonths.findIndex((_, j) => series.A[j] + series.B[j] + series.C[j] > 0)
+    return i === -1 ? 0 : i
+  }, [pastMonths, series])
+  const activeMonths = pastMonths.slice(firstDataIdx)
+  const activeSeries = {
+    A: series.A.slice(firstDataIdx),
+    B: series.B.slice(firstDataIdx),
+    C: series.C.slice(firstDataIdx),
+  }
 
   const toggleExclude = async (ref) => {
     const next = excluded.includes(ref) ? excluded.filter(r => r !== ref) : [...excluded, ref]
@@ -52,14 +65,14 @@ export default function Tracker() {
   const totalAvg = bucketAvg.A + bucketAvg.B + bucketAvg.C
   const projectedAnnual = totalAvg * HORIZON
 
-  const labels = [...pastMonths, ...futureMonths].map(formatMonthShort)
-  const nPast = pastMonths.length
+  const labels = [...activeMonths, ...futureMonths].map(formatMonthShort)
+  const nPast = activeMonths.length
   const chartData = {
     labels,
     datasets: BUCKETS.flatMap(b => {
-      const actual = [...series[b.key], ...futureMonths.map(() => null)]
+      const actual = [...activeSeries[b.key], ...futureMonths.map(() => null)]
       const projected = labels.map(() => null)
-      projected[nPast - 1] = series[b.key][nPast - 1]   // start the dashed line at the seam
+      projected[nPast - 1] = activeSeries[b.key][nPast - 1]   // start the dashed line at the seam
       for (let i = 0; i < futureMonths.length; i++) projected[nPast + i] = bucketAvg[b.key]
       return [
         { label: b.label, data: actual, borderColor: b.color, backgroundColor: b.color, tension: 0.3, pointRadius: 2, borderWidth: 2 },
@@ -86,7 +99,8 @@ export default function Tracker() {
     <div className="page">
       <h1 className="page-title">Tracker</h1>
       <p style={{ fontSize: 13, color: 'var(--text-2)', marginTop: -4, marginBottom: '1rem' }}>
-        Monthly spend by bucket over the last {WINDOW} months, projected forward {HORIZON} months from your trailing average.
+        Monthly spend by bucket{monthsWithData > 0 ? ` over your ${monthsWithData} month${monthsWithData === 1 ? '' : 's'} of data` : ''}, projected
+        forward {HORIZON} months from your average monthly spend. Averages divide by months imported, not a flat {WINDOW}.
         Expand a category to exclude one-off transactions from the projection.
       </p>
 

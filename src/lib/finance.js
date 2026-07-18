@@ -209,13 +209,15 @@ export function formatMonthShort(key) {
 export function computeTracker(transactions, monthKeys, excludedSet = new Set()) {
   const idx = Object.fromEntries(monthKeys.map((k, i) => [k, i]))
   const series = { A: monthKeys.map(() => 0), B: monthKeys.map(() => 0), C: monthKeys.map(() => 0) }
+  const monthsPresent = new Set()
   const catMap = {}
   for (const tx of transactions) {
+    const k = monthKey(tx.date)
+    if (!(k in idx)) continue
+    monthsPresent.add(k)               // any transaction means we have data for that month
     if (!(tx.amount < 0)) continue
     const b = tx.category
     if (b !== 'A' && b !== 'B' && b !== 'C') continue
-    const k = monthKey(tx.date)
-    if (!(k in idx)) continue
     const abs = Math.abs(tx.amount)
     series[b][idx[k]] += abs
     const key = `${b} — ${tx.subcategory}`
@@ -223,11 +225,14 @@ export function computeTracker(transactions, monthKeys, excludedSet = new Set())
     catMap[key].txs.push(tx)
     if (!excludedSet.has(tx.reference)) catMap[key].total += abs
   }
-  const months = monthKeys.length || 12
+  // Divide by the number of months actually imported, not a flat 12 — otherwise a
+  // partial history (e.g. only 4 months) makes every average read artificially low.
+  const monthsWithData = monthsPresent.size
+  const divisor = monthsWithData || 1
   const categories = Object.values(catMap)
-    .map(c => ({ ...c, avgMonthly: c.total / months, projectedAnnual: (c.total / months) * 12 }))
+    .map(c => ({ ...c, avgMonthly: c.total / divisor, projectedAnnual: (c.total / divisor) * 12 }))
     .sort((a, b) => b.avgMonthly - a.avgMonthly)
   const bucketAvg = { A: 0, B: 0, C: 0 }
   for (const c of categories) bucketAvg[c.bucket] += c.avgMonthly
-  return { series, categories, bucketAvg }
+  return { series, categories, bucketAvg, monthsWithData }
 }
