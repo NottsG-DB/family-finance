@@ -88,17 +88,22 @@ export default function Import() {
   const [dragOver, setDragOver] = useState(false)
 
   const processFile = useCallback(async (file) => {
-    const text = await file.text()
+    // Santander exports (XLS-as-HTML and Midata CSV) are ISO-8859-1, where £ is the
+    // single byte 0xA3. Blob.text() always decodes as UTF-8, which turns £ into the
+    // replacement char U+FFFD and breaks amount parsing — so decode explicitly.
+    const buf = await file.arrayBuffer()
+    const latin1 = new TextDecoder('iso-8859-1').decode(buf)
+    const utf8 = new TextDecoder('utf-8').decode(buf)
     let parsed = []
     if (file.name.endsWith('.csv')) {
-      // Detect Santander Midata CSV (semicolon separated) vs credit card CSV (comma separated)
-      if (text.includes('Date;Type;Merchant') || text.split('\n')[0].includes(';')) {
-        parsed = parseSantanderMidata(text)
+      // Detect Santander Midata CSV (semicolon separated, ISO-8859-1) vs credit card CSV (comma separated)
+      if (latin1.includes('Date;Type;Merchant') || latin1.split('\n')[0].includes(';')) {
+        parsed = parseSantanderMidata(latin1)
       } else {
-        parsed = parseCreditCardCSV(text)
+        parsed = parseCreditCardCSV(utf8)
       }
     } else {
-      parsed = parseSantanderHTML(text)
+      parsed = parseSantanderHTML(latin1)
     }
     const categorised = categoriseBatch(parsed)
     setTransactions(categorised)

@@ -104,8 +104,10 @@ export function parseSantanderHTML(text) {
     const date = `${y}-${m}-${d}`
     const description = cells[3] || ''
     if (!description || description === 'Description') continue
+    // Allowlist digits/dot/minus so any currency symbol, thousands separator or
+    // stray encoding artefact (e.g. U+FFFD from a mis-decoded £) is stripped.
     const cleanAmt = v => {
-      const s = (v || '').replace(/[\xc2\xa3,+\s]/g, '').trim()
+      const s = (v || '').replace(/[^0-9.-]/g, '')
       const n = parseFloat(s)
       return isNaN(n) ? 0 : Math.abs(n)
     }
@@ -133,9 +135,10 @@ export function parseSantanderMidata(text) {
     const [d, m, y] = dateStr.split('/')
     const date = `${y}-${m}-${d}`
     const description = cols[2] || cols[1] || 'Unknown'
-    const amtStr = (cols[3] || '').replace(/[\xc2\xa3,\s]/g, '')
+    // Midata amounts are signed (e.g. -£34.59 / +£12.00) — keep +/- but drop £ etc.
+    const amtStr = (cols[3] || '').replace(/[^0-9.+-]/g, '')
     const amount = parseFloat(amtStr) || 0
-    const balStr = (cols[4] || '').replace(/[\xc2\xa3,+\s]/g, '')
+    const balStr = (cols[4] || '').replace(/[^0-9.+-]/g, '')
     const balance = Math.abs(parseFloat(balStr) || 0)
     if (amount === 0) continue
     const reference = `SAN-${date}-${description.slice(0, 20)}-${Math.abs(amount)}`.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_.]/g, '')
